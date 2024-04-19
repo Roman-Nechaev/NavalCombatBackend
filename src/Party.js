@@ -84,5 +84,25 @@ module.exports = class Party extends Observer {
         this.turnUpdate();
       }
     }
+    if (player1.battlefield.loser || player2.battlefield.loser) {
+      this.stop();
+
+      player1.emit(
+        "statusChange",
+        player1.battlefield.loser ? "loser" : "winner"
+      );
+
+      player2.emit(
+        "statusChange",
+        player2.battlefield.loser ? "loser" : "winner"
+      );
+    }
+  }
+
+  sendMessage(message) {
+    const { player1, player2 } = this;
+
+    player1.emit("message", message);
+    player2.emit("message", message);
   }
 };

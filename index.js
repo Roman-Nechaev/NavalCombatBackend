@@ -1,5 +1,7 @@
 const session = require("express-session");
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 
 const PartyManager = require("./src/PartyManager");
 const pm = new PartyManager();
@@ -22,6 +24,12 @@ app.use(
 
 app.use(express.static("../NavalCombat"));
 
+//по умолчанию
+app.use("*", (req, res) => {
+  res.type("html");
+  res.send(fs.readFileSync(path.join(__dirname, "../NavalCombat/index.html")));
+});
+
 const io = new Server(httpServer);
 
 httpServer.listen(port, () => {
@@ -35,7 +43,6 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     pm.disconnect(socket);
-
     io.emit("playerCount", io.engine.clientsCount);
   });
 
