@@ -3,30 +3,55 @@ const Party = require("./Party");
 const Ship = require("./Ship");
 const { getRandomString } = require("./additional");
 
+const RECONNECTION_TIMER = 5000;
+
 module.exports = class PartyManager {
   players = [];
-  partys = [];
+  parties = [];
 
   waitingRandom = [];
   waitingChallenge = new Map();
 
-  connection(socket) {
-    // TODO: индефикация одного пользователя
+  reconnections = new Map();
 
-    const player = new Player(socket);
-    this.players.push(player);
+  connection(socket) {
+    // TODO: индентифицировать пользователя
+    const sessionId = socket.request.sessionID;
+    let player = this.players.find((player) => player.sessionId === sessionId);
+
+    if (player) {
+      player.socket.emit("doubleConnection");
+      player.socket.disconnect();
+      player.socket = socket;
+
+      if (this.reconnections.has(player)) {
+        clearTimeout(this.reconnections.get(player));
+        this.reconnections.delete(player);
+
+        if (player.party) {
+          player.party.reconnection(player);
+        }
+      }
+    } else {
+      player = new Player(socket, sessionId);
+      this.players.push(player);
+    }
 
     const isFree = () => {
       if (this.waitingRandom.includes(player)) {
         return false;
       }
+
       const values = Array.from(this.waitingChallenge.values());
+
       if (values.includes(player)) {
         return false;
       }
+
       if (player.party) {
         return false;
       }
+
       return true;
     };
 
@@ -36,7 +61,6 @@ module.exports = class PartyManager {
       }
 
       player.battlefield.clear();
-
       for (const { size, direction, x, y } of ships) {
         const ship = new Ship(size, direction);
         player.battlefield.addShip(ship, x, y);
@@ -54,11 +78,11 @@ module.exports = class PartyManager {
       if (this.waitingRandom.length >= 2) {
         const [player1, player2] = this.waitingRandom.splice(0, 2);
         const party = new Party(player1, player2);
-        this.partys.push(party);
+        this.parties.push(party);
 
-        const unsubscribe = party.subscribe(() => {
+        const unsubcribe = party.subscribe(() => {
           this.removeParty(party);
-          unsubscribe();
+          unsubcribe();
         });
       }
     });
@@ -73,9 +97,8 @@ module.exports = class PartyManager {
         this.waitingChallenge.delete(key);
 
         const party = new Party(opponent, player);
-        this.partys.push(party);
+        this.parties.push(party);
       } else {
-        //ключ партии
         key = getRandomString(20);
         socket.emit("challengeOpponent", key);
         socket.emit("statusChange", "waiting");
@@ -93,6 +116,7 @@ module.exports = class PartyManager {
         const index = this.waitingRandom.indexOf(player);
         this.waitingRandom.splice(index, 1);
       }
+
       const values = Array.from(this.waitingChallenge.values());
       if (values.includes(player)) {
         const index = values.indexOf(player);
@@ -101,11 +125,13 @@ module.exports = class PartyManager {
         this.waitingChallenge.delete(key);
       }
     });
+
     socket.on("addShot", (x, y) => {
       if (player.party) {
         player.party.addShot(player, x, y);
       }
     });
+
     socket.on("message", (message) => {
       if (player.party) {
         player.party.sendMessage(message);
@@ -121,7 +147,16 @@ module.exports = class PartyManager {
     }
 
     if (player.party) {
-      player.party.gaveup(player);
+      const flag = setTimeout(() => {
+        this.reconnections.delete(player);
+
+        if (player.party) {
+          player.party.gaveup(player);
+        }
+        this.removePlayer(player);
+      }, RECONNECTION_TIMER);
+
+      this.reconnections.set(player, flag);
     }
 
     if (this.waitingRandom.includes(player)) {
@@ -151,6 +186,7 @@ module.exports = class PartyManager {
     if (!this.players.includes(player)) {
       return false;
     }
+
     const index = this.players.indexOf(player);
     this.players.splice(index, 1);
 
@@ -171,32 +207,32 @@ module.exports = class PartyManager {
   }
 
   addParty(party) {
-    if (this.partys.includes(party)) {
+    if (this.parties.includes(party)) {
       return false;
     }
 
-    this.partys.push(party);
+    this.parties.push(party);
 
     return true;
   }
 
   removeParty(party) {
-    if (!this.partys.includes(party)) {
+    if (!this.parties.includes(party)) {
       return false;
     }
-    const index = this.partys.indexOf(party);
+    const index = this.parties.indexOf(party);
 
-    this.partys.splice(index, 1);
+    this.parties.splice(index, 1);
 
     return true;
   }
 
   removeAllParty() {
-    const partys = this.partys.splice();
-    for (const party of partys) {
+    const parties = this.parties.splice();
+    for (const party of parties) {
       this.removeParty(party);
     }
-    return partys.length;
+    return parties.length;
   }
 
   playRandom(player) {

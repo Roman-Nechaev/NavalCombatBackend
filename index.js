@@ -13,15 +13,13 @@ const httpServer = createServer(app);
 
 const port = 4040;
 
+const sessionMiddleware = session({
+  secret: "s3Cur3",
+  name: "sessionId",
+});
 app.set("trust proxy", 1);
-
-app.use(
-  session({
-    secret: "s3Cur3",
-    name: "sessionId",
-  })
-);
-
+app.use(sessionMiddleware);
+console.log("");
 app.use(express.static("../NavalCombat"));
 
 //по умолчанию
@@ -36,9 +34,12 @@ httpServer.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
 
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, {}, next);
+});
+
 io.on("connection", (socket) => {
   pm.connection(socket);
-
   io.emit("playerCount", io.engine.clientsCount);
 
   socket.on("disconnect", () => {
